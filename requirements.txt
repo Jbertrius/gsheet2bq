@@ -1,5 +1,7 @@
+pyasn1
 gspread
 oauth2client
 google-cloud-bigquery
 pandas
 pandas_gbq
+pyarrow
