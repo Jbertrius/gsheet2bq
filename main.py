@@ -1,10 +1,9 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import pprint
 import pandas
-from google.cloud import bigquery
 from google.oauth2 import service_account
 from utils import *
+from datetime import timedelta
 
 # Credentials
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -21,22 +20,28 @@ client = gspread.authorize(creds)
 client_bq = bigquery.Client(project=projectid, credentials=credentials)
 
 # Nb of KY
-nbKy = 11
+nbKy = 1
 
 # range
-cell_range = 'B2:I14'
+cell_range = 'B2:I15'
+range_to_delete = 'C3:I15'
+date_range = 'C2:I2'
 
 # radical
-root = 'Creteil {}KY'
+root = 'Copie de Creteil {}KY'
 
 # Table name and dataset name
 table_name = 'work_done'
 dataset_name = 'data_state'
+header_gsheet = ["date", "morning_schedule", "subae", "ntf_ntc", "ttagui", "mannam", "nbj", "volontier", "education",
+                 "tm", "leaf", "bs", "wen_service", "tue_service"]
 
 
 def export_data(worksheet_list):
     sheet_main = worksheet_list[0]
     nb = len(worksheet_list) - 1
+
+    large_df = pandas.DataFrame()
 
     for k in range(nb):
         sheet = worksheet_list[k + 1]
@@ -45,11 +50,10 @@ def export_data(worksheet_list):
         subae_data = [item.value for item in sheet_range]
 
         data_dict_tobq = dict()
-        header_gsheet = ["date", "morning_schedule", "subae", "ntf_ntc", "ttagui", "mannam", "nbj",
-                         "education", "tm", "leaf", "bs", "wen_service", "tue_service"]
+
         i = 0
 
-        for n in range(0, 104, 8):
+        for n in range(0, len(subae_data), 8):
             l = subae_data[n:n + 8]
 
             cols = header_gsheet[i]
@@ -68,33 +72,14 @@ def export_data(worksheet_list):
         data_dict_tobq['ky'] = [sheet_main.title for i in range(7)]
 
         df = pandas.DataFrame(data_dict_tobq)
+        if large_df.empty:
+            large_df = df
+        else:
+            large_df = large_df.append(df)
 
-        job_config = bigquery.LoadJobConfig(
-            write_disposition='WRITE_TRUNCATE',
-            schema=[
-                bigquery.SchemaField('name', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('ky', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('date', bigquery.enums.SqlTypeNames.DATE),
-                bigquery.SchemaField('subae', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('ttagui', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('ntf_ntc', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('mannam', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('education', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('tm', bigquery.enums.SqlTypeNames.INTEGER),
-                bigquery.SchemaField('morning_schedule', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('nbj', bigquery.enums.SqlTypeNames.STRING),
-                # bigquery.SchemaField('volontier', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('leaf', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('bs', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('wen_service', bigquery.enums.SqlTypeNames.STRING),
-                bigquery.SchemaField('tue_service', bigquery.enums.SqlTypeNames.STRING),
-            ]
-        )
+        clear(sheet)
 
-        full_name = '{}.{}.{}'.format(projectid, dataset_name, table_name)
-        job = client_bq.load_table_from_dataframe(df, full_name, job_config=job_config)
-
-        job.result()
+    load_job(large_df, client_bq, projectid, dataset_name, table_name)
 
 
 def main():
@@ -104,7 +89,22 @@ def main():
         worksheet_list = spreadsheet.worksheets()
         export_data(worksheet_list)
 
+
 def clear(worksheet):
+    cell_list = worksheet.range(range_to_delete)
+    for cell in cell_list:
+        cell.value = ''
+
+    date_cell_list = worksheet.range(date_range)
+    date_cell_list_cvt = ['{}/{}'.format(item.value, str(datetime.now().year)) for item in date_cell_list]
+
+    init = 1
+    for cell in date_cell_list:
+        cell.value = (datetime.strptime(date_cell_list_cvt[-1], '%d/%m/%Y').date() + timedelta(days=init)).strftime("%d/%m")
+        init = init + 1
+    # Update in batch
+    worksheet.update_cells(cell_list)
+    worksheet.update_cells(date_cell_list)
 
 
 main()
